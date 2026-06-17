@@ -24,22 +24,22 @@ python3 merge_vehicle_logs.py \
 列出某辆已知车牌在日志目录里的候选事件：
 
 ```bash
-python3 merge_vehicle_logs.py 鲁UQC322 --log-dir 20260514 --list-events
+python3 merge_vehicle_logs.py <车牌> --log-dir 20260514 --list-events
 ```
 
 围绕某个时间点合并一辆车的日志：
 
 ```bash
-python3 merge_vehicle_logs.py 鲁UQC322 \
+python3 merge_vehicle_logs.py <车牌> \
   --log-dir 20260514 \
   --at '2026-05-14 08:00:28' \
   --window-minutes 4 \
-  -o merged_鲁UQC322_20260514_080028.md
+  -o merged_SAMPLE_20260514_080028.md
 ```
 
 常用参数：
 
-- `vehicle`：车牌，例如 `鲁UQC322`。脚本也会把 `鲁UQC322_0` 作为初始 key。
+- `vehicle`：车牌，例如 `<车牌>`。脚本也会把 `<车牌>_0` 作为初始 key。
 - `--log-dir`：日志目录，默认 `20260514`。
 - `--at`：锚点时间。建议总是提供，否则会扫描整个目录，容易把同一车多次通行合在一起。
 - `--window-minutes`：锚点前后的时间窗口，默认 `5`。
@@ -84,7 +84,7 @@ python3 merge_vehicle_logs.py \
 输出会按候选事件列出车牌、起止时间、种子行数、关联车道和来源类型：
 
 ```text
-1. 鲁BE8083 | 2026-05-14 08:10:00 ~ 2026-05-14 08:10:31 | lines=253 | lanes=3701643301 | sources=data, etc, fee, field, mtc, namelist
+1. <车牌A> | 2026-05-14 08:10:00 ~ 2026-05-14 08:10:31 | lines=253 | lanes=3701643301 | sources=data, etc, fee, field, mtc, namelist
 ```
 
 `--auto` 也可以限制规模或指定输出目录：
@@ -102,7 +102,7 @@ python3 merge_vehicle_logs.py \
 这时脚本会对每个候选事件复用同一套单车归并逻辑，输出文件名形如：
 
 ```text
-discovered/merged_鲁BE8083_20260514_081000.md
+discovered/merged_SAMPLE_20260514_081000.md
 ```
 
 批量生成时，脚本会用候选事件的时间中点作为锚点，并自动把窗口扩大到覆盖整个候选事件，避免只用事件开始时间导致后半段被截掉。
@@ -145,7 +145,7 @@ http://localhost:8765/replay/index.html
 也可以直接打开某个回放文件：
 
 ```text
-http://localhost:8765/replay/index.html?file=merged_鲁UQC322_20260514_080028.json
+http://localhost:8765/replay/index.html?file=merged_SAMPLE_20260514_080028.json
 ```
 
 页面操作：
@@ -182,11 +182,11 @@ http://localhost:8765/replay/index.html?file=merged_鲁UQC322_20260514_080028.js
 <车牌>_0
 ```
 
-例如目标车牌是 `鲁BE8083`，初始 key 就是：
+例如目标车牌是 `<车牌>`，初始 key 就是：
 
 ```text
-鲁BE8083
-鲁BE8083_0
+<车牌>
+<车牌>_0
 ```
 
 后续只要日志行包含当前 key 集合中的任意一个 key，就可能被纳入。
@@ -200,14 +200,14 @@ http://localhost:8765/replay/index.html?file=merged_鲁UQC322_20260514_080028.js
 实现上会先把车牌颜色后缀去掉再比较，例如：
 
 ```text
-鲁UQC322
-鲁UQC322_0
-鲁UQC322_1
+<车牌>
+<车牌>_0
+<车牌>_1
 ```
 
-都会被视为同一辆基础车牌 `鲁UQC322`。
+都会被视为同一辆基础车牌 `<车牌>`。
 
-这个规则可以挡住同一车道、同一服务、同一时间窗口内的其他车辆日志。例如日志中明确是 `鲁BAA2883_4`、`鲁B7198Y_0`，而目标车不是它们，就不会因为共用 topic、trace 或时间窗口被合入。
+这个规则可以挡住同一车道、同一服务、同一时间窗口内的其他车辆日志。例如日志中明确是 `<其他车牌A>_4`、`<其他车牌B>_0`，而目标车不是它们，就不会因为共用 topic、trace 或时间窗口被合入。
 
 有一种例外需要人工解读：同一条交易报文里可能同时出现目标车牌和另一个识别字段，例如入口牌、出口牌不一致。这种行不会被过滤，因为它仍然包含目标车牌，脚本会保留原文，交给后续分析判断是否属于同一笔交易。
 
@@ -278,13 +278,13 @@ http://localhost:8765/replay/index.html?file=merged_鲁UQC322_20260514_080028.js
 例如：
 
 ```bash
-python3 merge_vehicle_logs.py 鲁BE8083 --log-dir 20260514 --list-events --gap-minutes 10
+python3 merge_vehicle_logs.py <车牌> --log-dir 20260514 --list-events --gap-minutes 10
 ```
 
 输出类似：
 
 ```text
-1. 鲁BE8083 | 2026-05-14 08:10:00 ~ 2026-05-14 08:10:31 | lines=... | lanes=3701643301 | sources=data, etc, field
+1. <车牌A> | 2026-05-14 08:10:00 ~ 2026-05-14 08:10:31 | lines=... | lanes=3701643301 | sources=data, etc, field
 ```
 
 这个模式主要用于先找锚点时间，再用 `--at` 做精确合并。
@@ -298,13 +298,4 @@ python3 merge_vehicle_logs.py 鲁BE8083 --log-dir 20260514 --list-events --gap-m
 
 ## 本地样本
 
-`merged_*.md`、`*.docx`、`*.png` 都属于本地分析材料，默认被 `.gitignore` 忽略。当前工作目录里可能已有这些生成样本：
-
-- `merged_鲁UQC322_20260514_080028.md`：MTC/CPC 入口。
-- `merged_鲁BND750_20260514_080014.md`：ETC 匝道出口成功后直接放行。
-- `merged_鲁BTA180_20260514_080044.md`：ETC 入口。
-- `merged_辽GA7277_20260514_030333.md`：CPC 出口成功，前置有 ETC/MTC 出口失败。
-- `merged_鲁GY2213_20260514_080158.md`：匝道出口拒绝后，出口车道成功交易。
-- `merged_鲁BH280Q_20260514_080317.md`：OBU 拆卸/ETC 安装异常拒绝。
-- `merged_鲁PL3731_20260514_080409.md`：标签无卡/ETC 卡未插好连续失败。
-- `merged_鲁BE8083_20260514_081004.md`：称重数据缺失后补齐并成功。
+`merged_*.md`、`*.docx`、`*.png` 都属于本地分析材料，默认被 `.gitignore` 忽略。可以在本地保留不同交易形态的样本，例如 MTC/CPC 入口、ETC 出口成功、ETC 入口、CPC 出口成功、入口拒绝、称重缺失恢复、标签异常拒绝等。
