@@ -33,6 +33,12 @@ temp/
 *.tmp
 *.bak
 
+# Local source/reference artifacts
+*.md
+!README.md
+*.docx
+*.png
+
 # Local screenshots/debug captures
 screenshots/
 *.screenshot.png
