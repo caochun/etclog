@@ -35,6 +35,7 @@ temp/
 
 # Local source/reference artifacts
 20260514/
+replay/data/
 *.md
 !README.md
 *.docx
