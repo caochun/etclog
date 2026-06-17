@@ -34,7 +34,7 @@ temp/
 *.bak
 
 # Local source/reference artifacts
-20260515/
+20260514/
 *.md
 !README.md
 *.docx
