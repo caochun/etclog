@@ -1,0 +1,16 @@
+{
+  "name": "etclog",
+  "version": "1.0.0",
+  "description": "这个目录里的 `merge_vehicle_logs.py` 用来把同一辆车一次通行过程中散落在车道日志、ETC/MTC 服务日志、数据服务日志、名单服务日志里的相关记录归并成一个 Markdown 文件。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "three": "^0.165.0"
+  }
+}

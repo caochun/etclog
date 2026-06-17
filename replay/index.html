@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>车辆日志 3D 回放</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="stage">
+        <canvas id="scene"></canvas>
+        <div class="hud">
+          <select id="replaySelect" aria-label="选择车辆"></select>
+          <div class="stat">
+            <span id="vehicleName">-</span>
+            <span id="clock">--:--:--</span>
+            <span id="eventCount">0 / 0</span>
+          </div>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div class="controls">
+          <button id="playButton" type="button">播放</button>
+          <input id="scrubber" type="range" min="0" max="0" value="0" />
+          <select id="speedSelect" aria-label="倍速">
+            <option value="0.05">0.05x</option>
+            <option value="0.1">0.1x</option>
+            <option value="0.25">0.25x</option>
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+          </select>
+        </div>
+      </section>
+      <aside class="panel">
+        <div class="event-head">
+          <div id="eventTitle">等待载入</div>
+        </div>
+        <ol id="timeline"></ol>
+      </aside>
+    </main>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/build/three.module.js",
+          "three/addons/": "./vendor/three/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
