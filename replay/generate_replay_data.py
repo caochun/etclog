@@ -47,6 +47,16 @@ def detect_coil_id(text):
     return first_match(text, r"线圈为:(\d+)号") or first_match(text, r"车检器(\d+)")
 
 
+def detect_coil_state(text):
+    value = first_match(text, r"改变后的状态为:(true|false)")
+    if value:
+        return value == "true"
+    value = first_match(text, r"车检状态:车检器\d+(有信号|无信号)")
+    if value:
+        return value == "有信号"
+    return None
+
+
 def infer_lane_profile(entries):
     coil_ids = {entry["coilId"] for entry in entries if entry["coilId"]}
     if {"1", "2"} & coil_ids:
@@ -178,6 +188,7 @@ def parse_markdown(path):
         raw = "\n".join(text_lines)
         device, kind, severity = classify(raw)
         coil_id = detect_coil_id(raw)
+        coil_state = detect_coil_state(raw)
         lane = first_match(raw, r"\b(37016433[0-9A-F]{2})\b")
         trade_id = first_match(raw, r'"tradeId":"([^"]+)"')
         pass_id = first_match(raw, r'"passId":"([^"]+)"')
@@ -195,6 +206,7 @@ def parse_markdown(path):
                 "severity": severity,
                 "lane": lane,
                 "coilId": coil_id,
+                "coilState": coil_state,
                 "coilLabel": None,
                 "tradeId": trade_id,
                 "passId": pass_id,

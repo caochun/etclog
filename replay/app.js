@@ -56,12 +56,23 @@ let playing = false;
 let lastTick = performance.now();
 let speed = 1;
 let communicationBeam = null;
+let coilStates = new Map();
+let eventPositions = [];
 
 const coilInfo = {
   "1": { label: "车检器1", profile: "etc", z: -14.5, x: 0, color: 0x6ee7b7 },
   "2": { label: "车检器2", profile: "etc", z: -10.5, x: 0, color: 0x34d399 },
   "6": { label: "存在线圈6", profile: "mtc", z: 11.8, x: 0, color: 0x8bd17c },
   "7": { label: "落杆线圈7", profile: "both", z: 21.5, x: 0, color: 0xa7f3d0 },
+};
+
+const deviceZAnchors = {
+  vlpr: deviceInfo.vlpr.z,
+  axle: deviceInfo.axle.z,
+  weigh: deviceInfo.weigh.z,
+  cpc: deviceInfo.cpc.z,
+  display: deviceInfo.display.z,
+  barrier: deviceInfo.barrier.z,
 };
 
 const els = {
@@ -174,6 +185,7 @@ function buildScene() {
     const ring = box(1.35, 0.035, 0.9, info.color);
     ring.material.transparent = true;
     ring.material.opacity = 0.48;
+    ring.userData.coilId = id;
     ring.position.y = 0.035;
     const center = box(0.9, 0.04, 0.5, 0x1f2933);
     center.position.y = 0.045;
@@ -396,15 +408,35 @@ function communicationAntennaForVehicle() {
   }, null);
 }
 
-function eventZ(event, index, total) {
-  return -27 + (54 * index) / Math.max(total - 1, 1);
+function eventZCandidate(event, currentZ) {
+  if (event.coilId && coilInfo[event.coilId]) {
+    return coilInfo[event.coilId].z;
+  }
+  if (event.device === "rsu") {
+    return replay?.laneProfile === "etc" && currentZ < 0 ? -12.4 : deviceInfo.rsu.z;
+  }
+  if (Object.hasOwn(deviceZAnchors, event.device)) {
+    return deviceZAnchors[event.device];
+  }
+  return null;
+}
+
+function buildEventPositions() {
+  let currentZ = -27;
+  eventPositions = replay.events.map((event) => {
+    const candidate = eventZCandidate(event, currentZ);
+    if (candidate !== null) {
+      currentZ = Math.max(currentZ, candidate);
+    }
+    return currentZ;
+  });
 }
 
 function setEvent(index) {
   if (!replay || !replay.events.length) return;
   currentIndex = Math.max(0, Math.min(index, replay.events.length - 1));
   const event = replay.events[currentIndex];
-  const z = eventZ(event, currentIndex, replay.events.length);
+  const z = eventPositions[currentIndex] ?? -27;
   vehicle().position.z = THREE.MathUtils.lerp(vehicle().position.z, z, 0.55);
 
   deviceMeshes.forEach((item) => {
@@ -418,6 +450,7 @@ function setEvent(index) {
   coilMeshes.forEach((item) => {
     item.pulse = 0;
     item.body.material.emissive = new THREE.Color(0x000000);
+    item.body.material.opacity = coilStates.get(item.body.userData.coilId) ? 0.78 : 0.38;
   });
   const active = deviceMeshes.get(event.device) || deviceMeshes.get("service");
   if (event.device === "rsu") {
@@ -431,8 +464,12 @@ function setEvent(index) {
   }
   if (event.coilId && coilMeshes.has(event.coilId)) {
     const coil = coilMeshes.get(event.coilId);
+    if (typeof event.coilState === "boolean") {
+      coilStates.set(event.coilId, event.coilState);
+    }
     coil.pulse = 1;
     coil.group.visible = true;
+    coil.body.material.opacity = event.coilState === false ? 0.38 : 0.88;
   }
   communicationBeam.userData.active = event.device === "rsu";
   [...els.legend.children].forEach((item) => {
@@ -506,11 +543,13 @@ async function loadReplay(file) {
   const response = await fetch(`./data/${file}`);
   replay = await response.json();
   currentIndex = 0;
+  coilStates = new Map();
   els.vehicle.textContent = replay.vehicle;
   els.title.textContent = replay.passageTitle || `${replay.vehicle} ${replay.events[0]?.time?.slice(0, 19) || ""}`;
   els.scrubber.max = String(Math.max(replay.events.length - 1, 0));
   updateProfileVisibility(replay.laneProfile);
   updateCoilVisibility(replay.laneProfile);
+  buildEventPositions();
   renderTimeline();
   setEvent(0);
 }
@@ -610,6 +649,15 @@ buildScene();
 resize();
 loadIndex().catch((error) => {
   els.title.textContent = "数据加载失败";
-  els.log.textContent = String(error);
+  els.timeline.replaceChildren();
+  const item = document.createElement("li");
+  const time = document.createElement("div");
+  time.className = "time";
+  time.textContent = "error";
+  const summary = document.createElement("div");
+  summary.className = "summary";
+  summary.textContent = String(error);
+  item.append(time, summary);
+  els.timeline.append(item);
 });
 requestAnimationFrame(animate);

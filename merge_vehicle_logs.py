@@ -16,6 +16,9 @@ PLATE_PREFIXES = "京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋�
 PLATE_TOKEN_RE = re.compile(rf"[{PLATE_PREFIXES}][A-Z][A-Z0-9]{{5,6}}(?:_\d{{1,3}})?")
 HEX_VALUE_RE = re.compile(r"[0-9A-Fa-f]+")
 LANE_RE = re.compile(r"\b37016433[0-9A-F]{2}\b")
+COIL_TRANSITION_RE = re.compile(r"线圈为:(\d+)号,改变后的状态为:(true|false)")
+DETECTOR_RE = re.compile(r"车检器(\d+)(有信号|无信号)")
+DETECTOR_LINE_MARKERS = ("车辆检测器模块数据", "车辆检测器", "车检器", "线圈为:")
 
 KEY_FIELDS = {
     "msgId",
@@ -61,6 +64,22 @@ class LogLine:
 class VehicleEvent:
     vehicle: str
     lines: list[LogLine]
+
+
+@dataclass(frozen=True)
+class CoilTransition:
+    item: LogLine
+    lane: str
+    coil_id: str
+    active: bool
+
+
+@dataclass(frozen=True)
+class CoilPassage:
+    lane: str
+    start: dt.datetime
+    end: dt.datetime
+    transitions: list[CoilTransition]
 
 
 def parse_ts(line: str):
@@ -174,6 +193,38 @@ def line_matches(text: str, keys: set[str], vehicle: str) -> bool:
     return any(key and key in text for key in sorted(keys, key=len, reverse=True))
 
 
+def line_lane(path: Path, text: str) -> str | None:
+    match = LANE_RE.search(text)
+    if match:
+        return match.group(0)
+    match = LANE_RE.search(path.name)
+    if match:
+        return match.group(0)
+    return None
+
+
+def is_detector_line(text: str) -> bool:
+    return any(marker in text for marker in DETECTOR_LINE_MARKERS)
+
+
+def detector_transition(item: LogLine) -> CoilTransition | None:
+    lane = line_lane(item.path, item.text)
+    if not lane:
+        return None
+
+    match = COIL_TRANSITION_RE.search(item.text)
+    if match:
+        coil_id, state = match.groups()
+        return CoilTransition(item=item, lane=lane, coil_id=coil_id, active=state == "true")
+
+    match = DETECTOR_RE.search(item.text)
+    if match:
+        coil_id, state = match.groups()
+        return CoilTransition(item=item, lane=lane, coil_id=coil_id, active=state == "有信号")
+
+    return None
+
+
 def iter_files(log_dir: Path, around: dt.datetime | None, window: dt.timedelta):
     files = sorted(log_dir.glob("*.log"))
     if around is None:
@@ -216,6 +267,152 @@ def read_matching_lines(files, keys: set[str], vehicle: str, around, window) -> 
                 new_keys.update(extract_keys(line, vehicle, expandable_only=True))
 
     return matches, new_keys
+
+
+def read_detector_lines(files, lanes: set[str], around, window) -> list[LogLine]:
+    if not lanes:
+        return []
+
+    start = around - window if around else None
+    end = around + window if around else None
+    lines = []
+
+    for path in files:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line_no, line in enumerate(handle, 1):
+                if not is_detector_line(line):
+                    continue
+                lane = line_lane(path, line)
+                if lane not in lanes:
+                    continue
+                ts = parse_ts(line)
+                if ts is None:
+                    continue
+                if start and (ts < start or ts > end):
+                    continue
+                lines.append(LogLine(ts, path, line_no, line.rstrip("\n")))
+
+    return sorted(lines, key=lambda item: (item.ts, str(item.path), item.line_no))
+
+
+def coil_passages(detector_lines: list[LogLine]) -> list[CoilPassage]:
+    transitions_by_lane: dict[str, list[CoilTransition]] = {}
+    seen_transition_keys = set()
+
+    for item in detector_lines:
+        transition = detector_transition(item)
+        if not transition:
+            continue
+        key = (transition.lane, transition.coil_id, transition.active, transition.item.ts)
+        if key in seen_transition_keys:
+            continue
+        seen_transition_keys.add(key)
+        transitions_by_lane.setdefault(transition.lane, []).append(transition)
+
+    passages = []
+    for lane, transitions in transitions_by_lane.items():
+        transitions.sort(key=lambda transition: (transition.item.ts, transition.coil_id))
+        active_coils: set[str] = set()
+        current: list[CoilTransition] = []
+
+        for transition in transitions:
+            if not current and transition.active:
+                current = [transition]
+                active_coils.add(transition.coil_id)
+                continue
+            if not current:
+                continue
+
+            current.append(transition)
+            if transition.active:
+                active_coils.add(transition.coil_id)
+            else:
+                active_coils.discard(transition.coil_id)
+
+            if not active_coils:
+                passages.append(
+                    CoilPassage(
+                        lane=lane,
+                        start=current[0].item.ts,
+                        end=current[-1].item.ts,
+                        transitions=list(current),
+                    )
+                )
+                current = []
+
+        if current:
+            passages.append(
+                CoilPassage(
+                    lane=lane,
+                    start=current[0].item.ts,
+                    end=current[-1].item.ts,
+                    transitions=list(current),
+                )
+            )
+
+    return passages
+
+
+def select_physical_passages(passages: list[CoilPassage], lanes: set[str], anchor: dt.datetime) -> list[CoilPassage]:
+    selected = []
+    for lane in lanes:
+        lane_passages = [passage for passage in passages if passage.lane == lane]
+        if not lane_passages:
+            continue
+
+        containing = [passage for passage in lane_passages if passage.start <= anchor <= passage.end]
+        if containing:
+            selected.append(min(containing, key=lambda passage: passage.end - passage.start))
+            continue
+
+        def distance(passage: CoilPassage):
+            if anchor < passage.start:
+                return passage.start - anchor
+            if anchor > passage.end:
+                return anchor - passage.end
+            return dt.timedelta(0)
+
+        selected.append(min(lane_passages, key=distance))
+
+    return selected
+
+
+def enrich_with_detector_lines(
+    files,
+    matches: list[LogLine],
+    around,
+    window,
+) -> list[LogLine]:
+    lanes = set()
+    for item in matches:
+        lane = line_lane(item.path, item.text)
+        if lane:
+            lanes.add(lane)
+    if not lanes:
+        return []
+
+    if around:
+        anchor = around
+    elif matches:
+        anchor = matches[len(matches) // 2].ts
+    else:
+        return []
+
+    detector_lines = read_detector_lines(files, lanes, anchor, window)
+    passages = select_physical_passages(coil_passages(detector_lines), lanes, anchor)
+    if not passages:
+        return []
+
+    selected_lines = []
+    for passage in passages:
+        start = passage.start - dt.timedelta(milliseconds=2)
+        end = passage.end + dt.timedelta(milliseconds=2)
+        for item in detector_lines:
+            lane = line_lane(item.path, item.text)
+            if lane == passage.lane and start <= item.ts <= end:
+                selected_lines.append(item)
+
+    return selected_lines
 
 
 def cluster_seed_lines(log_dir: Path, vehicle: str, gap: dt.timedelta):
@@ -327,6 +524,10 @@ def merge_vehicle(log_dir: Path, vehicle: str, around, window, max_rounds: int):
         if len(keys) == before:
             break
 
+    detector_matches = enrich_with_detector_lines(files, list(all_matches.values()), around, window)
+    for item in detector_matches:
+        all_matches[(str(item.path), item.line_no)] = item
+
     return sorted(all_matches.values(), key=lambda item: (item.ts, str(item.path), item.line_no)), keys
 
 
@@ -349,14 +550,15 @@ def write_markdown(out, vehicle: str, log_dir: Path, around, window, matches, ke
     print("## Timeline", file=out)
     print("", file=out)
 
-    for item in matches:
+    for index, item in enumerate(matches):
         rel = item.path.relative_to(log_dir.parent)
         print(f"### {item.ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} `{rel}:{item.line_no}`", file=out)
         print("", file=out)
         print("```text", file=out)
-        print(item.text, file=out)
+        print(item.text.rstrip(), file=out)
         print("```", file=out)
-        print("", file=out)
+        if index < len(matches) - 1:
+            print("", file=out)
 
 
 def write_discovered_events(args, log_dir: Path, events: list[VehicleEvent], output_dir: Path | None):
